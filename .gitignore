@@ -1,3 +1,5 @@
 .venv
 inputs
 *.pdf
+.idea
+__pycache__
