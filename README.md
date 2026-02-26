@@ -39,18 +39,16 @@ pdf_interleave merge   -a recto.pdf --order-a asc   -b verso.pdf --order-b desc 
 Run server:
 
 ``` bash
-pdf_interleave serve --host 0.0.0.0 --port 8000
+uvicorn web.app:app --host 0.0.0.0 --port 8000
 ```
 
 ------------------------------------------------------------------------
 
 ## 🏗 Project Structure
 
-core/ merge.py pagerange.py validate.py
-
-cli/ main.py
-
-web/ app.py routes.py store.py templates/
+- `core/merge.py`, `core/pagerange.py`, `core/validate.py`: core logic
+- `cli/app.py`, `main.py`: CLI entrypoint
+- `web/app.py`, `web/store.py`, `web/rate_limit.py`, `web/templates/`: FastAPI web adapter
 
 ------------------------------------------------------------------------
 
@@ -62,7 +60,8 @@ MAX_FILE_MB=15\
 DOWNLOAD_TTL_SECONDS=300\
 MAX_ACTIVE_JOBS=20\
 RATE_LIMIT_MERGE_PER_MIN=10\
-RATE_LIMIT_DOWNLOAD_PER_MIN=30
+RATE_LIMIT_DOWNLOAD_PER_MIN=30\
+ONE_SHOT_DOWNLOAD=true
 
 ------------------------------------------------------------------------
 

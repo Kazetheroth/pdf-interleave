@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
@@ -22,6 +23,16 @@ def load_reader(path: Path, *, label: str) -> PdfReader:
         reader = PdfReader(str(path))
     except Exception as exc:  # noqa: BLE001
         raise MergeError(f"{label}: failed to read PDF '{path}': {exc}") from exc
+    if getattr(reader, "is_encrypted", False):
+        raise MergeError(f"{label}: encrypted PDFs are not supported.")
+    return reader
+
+
+def load_reader_from_bytes(data: bytes, *, label: str) -> PdfReader:
+    try:
+        reader = PdfReader(BytesIO(data))
+    except Exception as exc:  # noqa: BLE001
+        raise MergeError(f"{label}: invalid PDF content: {exc}") from exc
     if getattr(reader, "is_encrypted", False):
         raise MergeError(f"{label}: encrypted PDFs are not supported.")
     return reader
@@ -89,3 +100,21 @@ def write_interleaved_pdf(
 
     with output_path.open("wb") as output_file:
         writer.write(output_file)
+
+
+def write_interleaved_pdf_to_bytes(
+    *,
+    reader_a: PdfReader,
+    reader_b: PdfReader,
+    plan: list[MergePlanItem],
+) -> bytes:
+    writer = PdfWriter()
+    for item in plan:
+        if item.source == "A":
+            writer.add_page(reader_a.pages[item.page_index])
+        else:
+            writer.add_page(reader_b.pages[item.page_index])
+
+    stream = BytesIO()
+    writer.write(stream)
+    return stream.getvalue()

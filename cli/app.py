@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from pagerange import PageRangeError, build_page_sequence
-from validate import ValidationError, validate_input_file, validate_no_duplicates, validate_output_path
+from core.pagerange import PageRangeError, build_page_sequence
+from core.validate import ValidationError, validate_input_file, validate_no_duplicates, validate_output_path
 
 
 class DependencyError(RuntimeError):
@@ -63,7 +63,7 @@ def run_merge(args: argparse.Namespace) -> int:
     output = validate_output_path(args.output, input_paths=[input_a, input_b])
 
     try:
-        from merge import MergeError, build_interleave_plan, load_reader, write_interleaved_pdf
+        from core.merge import MergeError, build_interleave_plan, load_reader, write_interleaved_pdf
     except ModuleNotFoundError as exc:
         if exc.name == "pypdf":
             raise DependencyError("Missing dependency 'pypdf'. Install it with: pip install pypdf") from exc

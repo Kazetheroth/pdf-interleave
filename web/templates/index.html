@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Interleave</title>
+    <style>
+        :root {
+            --bg-a: #f4f0e6;
+            --bg-b: #dce8ee;
+            --ink: #1f2d3a;
+            --accent: #b24c2f;
+            --accent-2: #2b6f8c;
+            --panel: #fffdfa;
+            --line: #d7cfbf;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            color: var(--ink);
+            font-family: "Trebuchet MS", "Gill Sans", sans-serif;
+            background:
+                radial-gradient(circle at 15% 20%, #f9e4c8 0%, transparent 32%),
+                radial-gradient(circle at 85% 5%, #cde0ea 0%, transparent 35%),
+                linear-gradient(135deg, var(--bg-a), var(--bg-b));
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+        .panel {
+            width: min(920px, 100%);
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            box-shadow: 0 18px 36px rgba(31, 45, 58, 0.12);
+            overflow: hidden;
+            animation: fade-in 260ms ease-out;
+        }
+        .head {
+            padding: 20px 24px 14px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, #fff8ee, #fffdfa);
+        }
+        h1 {
+            margin: 0;
+            font-family: "Palatino Linotype", "Book Antiqua", serif;
+            font-size: 1.8rem;
+            letter-spacing: 0.02em;
+        }
+        .meta {
+            margin-top: 8px;
+            color: #4e5c67;
+            font-size: 0.95rem;
+        }
+        form {
+            padding: 20px 24px 24px;
+            display: grid;
+            gap: 16px;
+        }
+        .grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+        label {
+            display: grid;
+            gap: 6px;
+            font-size: 0.93rem;
+            color: #31414d;
+        }
+        input, select {
+            border: 1px solid #c8bec0;
+            border-radius: 10px;
+            padding: 10px 11px;
+            font-size: 0.95rem;
+            background: #fff;
+            color: var(--ink);
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.93rem;
+        }
+        .checkbox input { width: 16px; height: 16px; }
+        button {
+            border: 0;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: #fff;
+            font-size: 0.98rem;
+            font-weight: 600;
+            padding: 12px 18px;
+            cursor: pointer;
+            transition: transform 140ms ease, box-shadow 140ms ease;
+            box-shadow: 0 10px 20px rgba(43, 111, 140, 0.28);
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 24px rgba(43, 111, 140, 0.34);
+        }
+        .error {
+            border: 1px solid #d88d88;
+            background: #fdecea;
+            color: #6f2420;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 0.94rem;
+        }
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+<main class="panel">
+    <section class="head">
+        <h1>PDF Interleave</h1>
+        <div class="meta">Two PDFs, RAM-only output, link TTL {{ ttl_seconds }}s, max {{ max_file_mb }} MB per file.</div>
+    </section>
+    <form action="/merge" method="post" enctype="multipart/form-data">
+        {% if error_message %}
+        <div class="error">{{ error_message }}</div>
+        {% endif %}
+        <div class="grid">
+            <label>
+                PDF A
+                <input type="file" name="file_a" accept="application/pdf,.pdf" required>
+            </label>
+            <label>
+                PDF B
+                <input type="file" name="file_b" accept="application/pdf,.pdf" required>
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                Order A
+                <select name="order_a">
+                    <option value="asc" {% if values.order_a == 'asc' %}selected{% endif %}>asc</option>
+                    <option value="desc" {% if values.order_a == 'desc' %}selected{% endif %}>desc</option>
+                    <option value="range" {% if values.order_a == 'range' %}selected{% endif %}>range</option>
+                    <option value="list" {% if values.order_a == 'list' %}selected{% endif %}>list</option>
+                    <option value="slice" {% if values.order_a == 'slice' %}selected{% endif %}>slice</option>
+                </select>
+            </label>
+            <label>
+                Pages A (optional for asc/desc)
+                <input name="pages_a" value="{{ values.pages_a }}">
+            </label>
+            <label>
+                Order B
+                <select name="order_b">
+                    <option value="asc" {% if values.order_b == 'asc' %}selected{% endif %}>asc</option>
+                    <option value="desc" {% if values.order_b == 'desc' %}selected{% endif %}>desc</option>
+                    <option value="range" {% if values.order_b == 'range' %}selected{% endif %}>range</option>
+                    <option value="list" {% if values.order_b == 'list' %}selected{% endif %}>list</option>
+                    <option value="slice" {% if values.order_b == 'slice' %}selected{% endif %}>slice</option>
+                </select>
+            </label>
+            <label>
+                Pages B (optional for asc/desc)
+                <input name="pages_b" value="{{ values.pages_b }}">
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                Start
+                <select name="start">
+                    <option value="A" {% if values.start == 'A' %}selected{% endif %}>A</option>
+                    <option value="B" {% if values.start == 'B' %}selected{% endif %}>B</option>
+                </select>
+            </label>
+            <label>
+                Policy
+                <select name="policy">
+                    <option value="append" {% if values.policy == 'append' %}selected{% endif %}>append</option>
+                    <option value="truncate" {% if values.policy == 'truncate' %}selected{% endif %}>truncate</option>
+                    <option value="error" {% if values.policy == 'error' %}selected{% endif %}>error</option>
+                </select>
+            </label>
+        </div>
+        <div class="row">
+            <label class="checkbox">
+                <input type="checkbox" name="strict" {% if values.strict %}checked{% endif %}>
+                Strict mode (reject duplicate pages)
+            </label>
+            <button type="submit">Merge PDFs</button>
+        </div>
+    </form>
+</main>
+</body>
+</html>
