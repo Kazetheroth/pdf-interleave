@@ -107,11 +107,12 @@ uvicorn web.app:app --reload
 
 ## 📜 License
 
-Specify your preferred open-source license here.
+This project is licensed under the **MIT License**.
+
+See [LICENSE](LICENSE) for the full text.
 
 ------------------------------------------------------------------------
 
 ## 👨‍💻 Author
 
-Generated project documentation for a configurable PDF interleaving
-system.
+Medhi FOULGOC
