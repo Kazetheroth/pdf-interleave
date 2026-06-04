@@ -25,7 +25,7 @@ def validate_output_path(path: str, *, input_paths: list[Path]) -> Path:
     output_resolved = output.resolve()
     input_resolved = {input_path.resolve() for input_path in input_paths}
     if output_resolved in input_resolved:
-        raise ValidationError("Output path must be different from both input files.")
+        raise ValidationError("Output path must be different from input files.")
 
     return output
 

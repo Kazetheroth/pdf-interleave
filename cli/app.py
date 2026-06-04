@@ -54,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--strict", action="store_true", help="Reject duplicate page selections.")
     merge_parser.add_argument("--verbose", action="store_true", help="Print merge diagnostics.")
 
+    concat_parser = subparsers.add_parser("concat", help="Concatenate two or more PDFs in the given order.")
+    concat_parser.add_argument("inputs", nargs="+", help="Input PDFs in output order")
+    concat_parser.add_argument("-o", "--output", required=True, help="Output PDF path")
+    concat_parser.add_argument("--verbose", action="store_true", help="Print concatenation diagnostics.")
+
     return parser
 
 
@@ -122,6 +127,41 @@ def run_merge(args: argparse.Namespace) -> int:
         raise ValidationError(str(exc)) from exc
 
 
+def run_concat(args: argparse.Namespace) -> int:
+    if len(args.inputs) < 2:
+        raise ValidationError("concat requires at least two input PDFs.")
+
+    inputs = [
+        validate_input_file(path, label=f"PDF {index}")
+        for index, path in enumerate(args.inputs, start=1)
+    ]
+    output = validate_output_path(args.output, input_paths=inputs)
+
+    try:
+        from core.merge import MergeError, load_reader, write_concatenated_pdf
+    except ModuleNotFoundError as exc:
+        if exc.name == "pypdf":
+            raise DependencyError("Missing dependency 'pypdf'. Install it with: pip install pypdf") from exc
+        raise
+
+    try:
+        readers = [
+            load_reader(input_path, label=f"PDF {index}")
+            for index, input_path in enumerate(inputs, start=1)
+        ]
+        write_concatenated_pdf(readers=readers, output_path=output)
+
+        if args.verbose:
+            _print_concat_verbose_summary(
+                inputs=inputs,
+                page_counts=[len(reader.pages) for reader in readers],
+                output=output,
+            )
+        return 0
+    except MergeError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
 def _print_verbose_summary(
     *,
     input_a: Path,
@@ -141,6 +181,18 @@ def _print_verbose_summary(
     print(f"Output: {output} ({output_pages} pages)")
 
 
+def _print_concat_verbose_summary(
+    *,
+    inputs: list[Path],
+    page_counts: list[int],
+    output: Path,
+) -> None:
+    total_pages = sum(page_counts)
+    for index, (input_path, page_count) in enumerate(zip(inputs, page_counts, strict=True), start=1):
+        print(f"{index}: {input_path} ({page_count} pages)")
+    print(f"Output: {output} ({total_pages} pages)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -148,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "merge":
             return run_merge(args)
+        if args.command == "concat":
+            return run_concat(args)
         parser.print_help()
         return 2
     except (FileNotFoundError, ValidationError, PageRangeError, DependencyError) as exc:

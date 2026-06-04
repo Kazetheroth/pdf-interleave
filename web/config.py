@@ -30,6 +30,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class WebSettings:
     max_file_mb: int
+    max_upload_files: int
     download_ttl_seconds: int
     max_active_jobs: int
     rate_limit_merge_per_min: int
@@ -43,13 +44,13 @@ class WebSettings:
 
     @property
     def max_output_bytes(self) -> int:
-        # Output is expected to stay around the sum of both inputs.
-        return self.max_file_bytes * 2 + (2 * 1024 * 1024)
+        # Output is expected to stay around the sum of all inputs.
+        return self.max_file_bytes * self.max_upload_files + (2 * 1024 * 1024)
 
     @property
     def max_request_bytes(self) -> int:
-        # Two files + multipart overhead.
-        return self.max_file_bytes * 2 + (2 * 1024 * 1024)
+        # Uploaded files + multipart overhead.
+        return self.max_file_bytes * self.max_upload_files + (2 * 1024 * 1024)
 
     @property
     def multipart_memory_limit_bytes(self) -> int:
@@ -60,6 +61,7 @@ class WebSettings:
 def load_settings() -> WebSettings:
     return WebSettings(
         max_file_mb=_env_int("MAX_FILE_MB", 15),
+        max_upload_files=_env_int("MAX_UPLOAD_FILES", 20, minimum=2),
         download_ttl_seconds=_env_int("DOWNLOAD_TTL_SECONDS", 300),
         max_active_jobs=_env_int("MAX_ACTIVE_JOBS", 20),
         rate_limit_merge_per_min=_env_int("RATE_LIMIT_MERGE_PER_MIN", 10),

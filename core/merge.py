@@ -118,3 +118,43 @@ def write_interleaved_pdf_to_bytes(
     stream = BytesIO()
     writer.write(stream)
     return stream.getvalue()
+
+
+def write_concatenated_pdf(
+    *,
+    readers: list[PdfReader],
+    output_path: Path,
+) -> None:
+    writer = _build_concatenated_writer(readers)
+
+    with output_path.open("wb") as output_file:
+        writer.write(output_file)
+
+
+def write_concatenated_pdf_to_bytes(
+    *,
+    readers: list[PdfReader],
+) -> bytes:
+    writer = _build_concatenated_writer(readers)
+
+    stream = BytesIO()
+    writer.write(stream)
+    return stream.getvalue()
+
+
+def _build_concatenated_writer(readers: list[PdfReader]) -> PdfWriter:
+    if len(readers) < 2:
+        raise MergeError("At least two PDFs are required for concatenation.")
+
+    writer = PdfWriter()
+    output_pages = 0
+    for reader_index, reader in enumerate(readers, start=1):
+        if len(reader.pages) < 1:
+            raise MergeError(f"PDF {reader_index}: PDF has no pages.")
+        for page in reader.pages:
+            writer.add_page(page)
+            output_pages += 1
+
+    if output_pages < 1:
+        raise MergeError("Concatenation produced no pages.")
+    return writer

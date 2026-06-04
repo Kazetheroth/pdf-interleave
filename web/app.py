@@ -57,7 +57,7 @@ async def _cleanup_loop() -> None:
 
 @app.middleware("http")
 async def add_no_cache_and_limit_request_size(request: Request, call_next):
-    if request.method == "POST" and request.url.path in {"/merge", "/api/merge"}:
+    if request.method == "POST" and request.url.path in {"/merge", "/concat", "/api/merge", "/api/concat"}:
         content_length = request.headers.get("content-length")
         if content_length is None:
             return JSONResponse(status_code=411, content={"detail": "Content-Length header required."})
@@ -134,6 +134,39 @@ async def merge_ui(
     )
 
 
+@app.post("/concat", response_class=HTMLResponse)
+async def concat_ui(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    order: str | None = Form(default=None),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_concat(
+            request=request,
+            files=files,
+            order=order,
+        )
+    except UserInputError as exc:
+        return _render_index(
+            request=request,
+            error_message=str(exc),
+            form_values={"mode": "concat"},
+        )
+
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="result.html",
+        context={
+            "token": result["token"],
+            "download_url": result["download_url"],
+            "expires_at": result["expires_at_human"],
+            "size_kb": round(result["size"] / 1024, 2),
+            "one_shot": SETTINGS.one_shot_download,
+        },
+    )
+
+
 @app.get("/download/{token}", name="download_file")
 async def download_file(request: Request, token: str):
     _enforce_rate_limit(request, kind="download")
@@ -185,6 +218,32 @@ async def merge_api(
     )
 
 
+@app.post("/api/concat")
+async def concat_api(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    order: str | None = Form(default=None),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_concat(
+            request=request,
+            files=files,
+            order=order,
+        )
+    except UserInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse(
+        {
+            "token": result["token"],
+            "download_url": result["download_url"],
+            "expires_at": result["expires_at_iso"],
+            "size": result["size"],
+        }
+    )
+
+
 @app.get("/api/status/{token}")
 async def status_api(token: str):
     entry = STORE.get_valid(token)
@@ -217,6 +276,7 @@ def _render_index(
         "start": "A",
         "policy": "append",
         "strict": False,
+        "mode": "interleave",
     }
     if form_values:
         values.update(form_values)
@@ -228,6 +288,7 @@ def _render_index(
             "error_message": error_message,
             "values": values,
             "max_file_mb": SETTINGS.max_file_mb,
+            "max_upload_files": SETTINGS.max_upload_files,
             "ttl_seconds": SETTINGS.download_ttl_seconds,
         },
     )
@@ -337,6 +398,79 @@ async def _process_merge(
     }
 
 
+async def _process_concat(
+    *,
+    request: Request,
+    files: list[UploadFile],
+    order: str | None,
+) -> dict[str, object]:
+    try:
+        from core.merge import MergeError, load_reader_from_bytes, write_concatenated_pdf_to_bytes
+    except ModuleNotFoundError as exc:
+        if exc.name == "pypdf":
+            raise UserInputError("Server is missing dependency 'pypdf'.") from exc
+        raise
+
+    if len(files) < 2:
+        raise UserInputError("Concatenation requires at least two PDF files.")
+    if len(files) > SETTINGS.max_upload_files:
+        raise UserInputError(f"Concatenation accepts at most {SETTINGS.max_upload_files} PDF files.")
+
+    ordered_indexes = _parse_concat_order(order, file_count=len(files))
+    ordered_files = [files[index] for index in ordered_indexes]
+    data_items = [
+        await _read_pdf_upload(upload, label=f"PDF {index}")
+        for index, upload in enumerate(ordered_files, start=1)
+    ]
+
+    async with MERGE_SEMAPHORE:
+        try:
+            readers = [
+                load_reader_from_bytes(data, label=f"PDF {index}")
+                for index, data in enumerate(data_items, start=1)
+            ]
+            output_bytes = write_concatenated_pdf_to_bytes(readers=readers)
+        except MergeError as exc:
+            raise UserInputError(str(exc)) from exc
+
+    if len(output_bytes) > SETTINGS.max_output_bytes:
+        raise UserInputError("Merged output exceeds RAM policy size limit.")
+
+    filename = _build_concat_output_filename([file.filename for file in ordered_files])
+    try:
+        token, entry = STORE.put(
+            pdf_bytes=output_bytes,
+            filename=filename,
+            ttl_seconds=SETTINGS.download_ttl_seconds,
+        )
+    except StoreFullError as exc:
+        raise UserInputError(str(exc)) from exc
+
+    download_url = str(request.url_for("download_file", token=token))
+    expires_at_dt = datetime.fromtimestamp(entry.expires_at, tz=timezone.utc)
+    return {
+        "token": token,
+        "download_url": download_url,
+        "expires_at_human": expires_at_dt.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "expires_at_iso": expires_at_dt.isoformat(),
+        "size": entry.size,
+    }
+
+
+def _parse_concat_order(order: str | None, *, file_count: int) -> list[int]:
+    if order is None or not order.strip():
+        return list(range(file_count))
+
+    try:
+        indexes = [int(part.strip()) for part in order.split(",") if part.strip()]
+    except ValueError as exc:
+        raise UserInputError("Invalid PDF order.") from exc
+
+    if len(indexes) != file_count or sorted(indexes) != list(range(file_count)):
+        raise UserInputError("Invalid PDF order.")
+    return indexes
+
+
 async def _read_pdf_upload(upload: UploadFile, *, label: str) -> bytes:
     if upload.content_type != "application/pdf":
         raise UserInputError(f"{label}: invalid MIME type. Only application/pdf is accepted.")
@@ -353,6 +487,15 @@ def _build_output_filename(name_a: str | None, name_b: str | None) -> str:
     part_a = _sanitize_filename_component(name_a or "a.pdf")
     part_b = _sanitize_filename_component(name_b or "b.pdf")
     return f"{part_a}_{part_b}_interleaved.pdf"
+
+
+def _build_concat_output_filename(names: list[str | None]) -> str:
+    if not names:
+        return "merged.pdf"
+
+    first = _sanitize_filename_component(names[0] or "first.pdf")
+    last = _sanitize_filename_component(names[-1] or "last.pdf")
+    return f"{first}_{last}_{len(names)}-pdfs_merged.pdf"
 
 
 def _sanitize_filename_component(filename: str) -> str:

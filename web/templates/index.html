@@ -29,7 +29,7 @@
             padding: 24px;
         }
         .panel {
-            width: min(920px, 100%);
+            width: min(960px, 100%);
             background: var(--panel);
             border: 1px solid var(--line);
             border-radius: 18px;
@@ -53,11 +53,33 @@
             color: #4e5c67;
             font-size: 0.95rem;
         }
+        .tabs {
+            display: flex;
+            gap: 8px;
+            padding: 16px 24px 0;
+        }
+        .tab {
+            border: 1px solid #c8bec0;
+            border-radius: 10px;
+            background: #fff;
+            color: #31414d;
+            font-size: 0.94rem;
+            font-weight: 700;
+            padding: 10px 14px;
+            cursor: pointer;
+            box-shadow: none;
+        }
+        .tab[aria-selected="true"] {
+            border-color: transparent;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        }
         form {
             padding: 20px 24px 24px;
             display: grid;
             gap: 16px;
         }
+        form[hidden] { display: none; }
         .grid {
             display: grid;
             gap: 14px;
@@ -90,7 +112,7 @@
             font-size: 0.93rem;
         }
         .checkbox input { width: 16px; height: 16px; }
-        button {
+        .primary {
             border: 0;
             border-radius: 12px;
             background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -102,9 +124,47 @@
             transition: transform 140ms ease, box-shadow 140ms ease;
             box-shadow: 0 10px 20px rgba(43, 111, 140, 0.28);
         }
-        button:hover {
+        .primary:hover {
             transform: translateY(-1px);
             box-shadow: 0 14px 24px rgba(43, 111, 140, 0.34);
+        }
+        .order-list {
+            display: grid;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .order-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            padding: 8px;
+        }
+        .file-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.94rem;
+        }
+        .move {
+            width: 36px;
+            height: 34px;
+            border: 1px solid #c8bec0;
+            border-radius: 9px;
+            background: #f9f7f2;
+            color: #31414d;
+            cursor: pointer;
+            font-weight: 700;
+        }
+        .move:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
         }
         .error {
             border: 1px solid #d88d88;
@@ -112,6 +172,7 @@
             color: #6f2420;
             border-radius: 10px;
             padding: 10px 12px;
+            margin: 16px 24px 0;
             font-size: 0.94rem;
         }
         @keyframes fade-in {
@@ -121,15 +182,19 @@
     </style>
 </head>
 <body>
-<main class="panel">
+<main class="panel" data-initial-mode="{{ values.mode }}">
     <section class="head">
         <h1>PDF Interleave</h1>
-        <div class="meta">Two PDFs, RAM-only output, link TTL {{ ttl_seconds }}s, max {{ max_file_mb }} MB per file.</div>
+        <div class="meta">RAM-only output, link TTL {{ ttl_seconds }}s, max {{ max_file_mb }} MB per file, up to {{ max_upload_files }} files.</div>
     </section>
-    <form action="/merge" method="post" enctype="multipart/form-data">
-        {% if error_message %}
-        <div class="error">{{ error_message }}</div>
-        {% endif %}
+    <nav class="tabs" aria-label="PDF operation">
+        <button class="tab" type="button" data-mode="interleave" aria-selected="true">Interleave 2 PDFs</button>
+        <button class="tab" type="button" data-mode="concat" aria-selected="false">Merge N PDFs</button>
+    </nav>
+    {% if error_message %}
+    <div class="error">{{ error_message }}</div>
+    {% endif %}
+    <form action="/merge" method="post" enctype="multipart/form-data" data-form="interleave">
         <div class="grid">
             <label>
                 PDF A
@@ -192,9 +257,85 @@
                 <input type="checkbox" name="strict" {% if values.strict %}checked{% endif %}>
                 Strict mode (reject duplicate pages)
             </label>
-            <button type="submit">Merge PDFs</button>
+            <button class="primary" type="submit">Merge PDFs</button>
+        </div>
+    </form>
+    <form action="/concat" method="post" enctype="multipart/form-data" data-form="concat" hidden>
+        <label>
+            PDFs
+            <input id="concat-files" type="file" name="files" accept="application/pdf,.pdf" multiple required>
+        </label>
+        <input id="concat-order" type="hidden" name="order">
+        <ol id="concat-list" class="order-list"></ol>
+        <div class="row">
+            <span class="meta">Output follows the order shown above.</span>
+            <button class="primary" type="submit">Merge PDFs</button>
         </div>
     </form>
 </main>
+<script>
+    const panel = document.querySelector(".panel");
+    const tabs = [...document.querySelectorAll(".tab")];
+    const forms = [...document.querySelectorAll("[data-form]")];
+    const initialMode = panel.dataset.initialMode === "concat" ? "concat" : "interleave";
+
+    function setMode(mode) {
+        tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)));
+        forms.forEach((form) => {
+            form.hidden = form.dataset.form !== mode;
+        });
+    }
+
+    tabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
+    setMode(initialMode);
+
+    const fileInput = document.getElementById("concat-files");
+    const orderInput = document.getElementById("concat-order");
+    const list = document.getElementById("concat-list");
+    let order = [];
+
+    function renderOrder() {
+        const files = [...fileInput.files];
+        orderInput.value = order.join(",");
+        list.innerHTML = "";
+
+        order.forEach((fileIndex, position) => {
+            const item = document.createElement("li");
+            item.className = "order-item";
+
+            const name = document.createElement("span");
+            name.className = "file-name";
+            name.textContent = `${position + 1}. ${files[fileIndex].name}`;
+
+            const up = document.createElement("button");
+            up.type = "button";
+            up.className = "move";
+            up.textContent = "Up";
+            up.disabled = position === 0;
+            up.addEventListener("click", () => move(position, -1));
+
+            const down = document.createElement("button");
+            down.type = "button";
+            down.className = "move";
+            down.textContent = "Dn";
+            down.disabled = position === order.length - 1;
+            down.addEventListener("click", () => move(position, 1));
+
+            item.append(name, up, down);
+            list.append(item);
+        });
+    }
+
+    function move(position, direction) {
+        const next = position + direction;
+        [order[position], order[next]] = [order[next], order[position]];
+        renderOrder();
+    }
+
+    fileInput.addEventListener("change", () => {
+        order = [...fileInput.files].map((_, index) => index);
+        renderOrder();
+    });
+</script>
 </body>
 </html>

@@ -5,6 +5,7 @@ A Python-based PDF interleaving tool supporting:
 -   CLI usage
 -   RAM-only Web version
 -   Configurable page ordering
+-   Sequential concatenation of N PDFs
 -   Secure ephemeral downloads
 
 ------------------------------------------------------------------------
@@ -26,11 +27,18 @@ Example:
 pdf_interleave merge   -a recto.pdf --order-a asc   -b verso.pdf --order-b desc   -o merged.pdf
 ```
 
+Concatenate PDFs in the exact order provided:
+
+``` bash
+pdf_interleave concat cover.pdf chapter-1.pdf chapter-2.pdf appendix.pdf -o book.pdf
+```
+
 ------------------------------------------------------------------------
 
 ### 🌐 Web Mode (RAM-Only)
 
--   Max 2 PDFs
+-   Interleave 2 PDFs
+-   Concatenate up to 20 PDFs by default
 -   15 MB per file
 -   Output generated fully in memory
 -   Temporary download link (default: 5 minutes)
@@ -57,6 +65,7 @@ uvicorn web.app:app --host 0.0.0.0 --port 8000
 Environment Variables:
 
 MAX_FILE_MB=15\
+MAX_UPLOAD_FILES=20\
 DOWNLOAD_TTL_SECONDS=300\
 MAX_ACTIVE_JOBS=20\
 RATE_LIMIT_MERGE_PER_MIN=10\
