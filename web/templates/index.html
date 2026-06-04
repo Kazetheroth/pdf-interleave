@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Interleave</title>
+    <title>{{ t.page_title }}</title>
     <style>
         :root {
             --bg-a: #f4f0e6;
@@ -137,7 +137,7 @@
         }
         .order-item {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto auto;
+            grid-template-columns: minmax(0, 1fr) auto auto auto;
             align-items: center;
             gap: 8px;
             border: 1px solid var(--line);
@@ -166,6 +166,12 @@
             opacity: 0.45;
             cursor: not-allowed;
         }
+        .remove {
+            width: 96px;
+            background: #fff2ee;
+            border-color: #d6aca0;
+            color: #7a2e1d;
+        }
         .error {
             border: 1px solid #d88d88;
             background: #fdecea;
@@ -184,12 +190,12 @@
 <body>
 <main class="panel" data-initial-mode="{{ values.mode }}">
     <section class="head">
-        <h1>PDF Interleave</h1>
-        <div class="meta">RAM-only output, link TTL {{ ttl_seconds }}s, max {{ max_file_mb }} MB per file, up to {{ max_upload_files }} files.</div>
+        <h1>{{ t.page_title }}</h1>
+        <div class="meta">{{ t.meta_prefix }} {{ ttl_seconds }}s, {{ t.meta_middle }} {{ max_file_mb }} {{ t.meta_suffix }} {{ max_upload_files }} {{ t.meta_end }}</div>
     </section>
-    <nav class="tabs" aria-label="PDF operation">
-        <button class="tab" type="button" data-mode="interleave" aria-selected="true">Interleave 2 PDFs</button>
-        <button class="tab" type="button" data-mode="concat" aria-selected="false">Merge N PDFs</button>
+    <nav class="tabs" aria-label="{{ t.operation_label }}">
+        <button class="tab" type="button" data-mode="interleave" aria-selected="true">{{ t.tab_interleave }}</button>
+        <button class="tab" type="button" data-mode="concat" aria-selected="false">{{ t.tab_concat }}</button>
     </nav>
     {% if error_message %}
     <div class="error">{{ error_message }}</div>
@@ -197,79 +203,79 @@
     <form action="/merge" method="post" enctype="multipart/form-data" data-form="interleave">
         <div class="grid">
             <label>
-                PDF A
+                {{ t.pdf_a }}
                 <input type="file" name="file_a" accept="application/pdf,.pdf" required>
             </label>
             <label>
-                PDF B
+                {{ t.pdf_b }}
                 <input type="file" name="file_b" accept="application/pdf,.pdf" required>
             </label>
         </div>
         <div class="grid">
             <label>
-                Order A
+                {{ t.order_a }}
                 <select name="order_a">
-                    <option value="asc" {% if values.order_a == 'asc' %}selected{% endif %}>asc</option>
-                    <option value="desc" {% if values.order_a == 'desc' %}selected{% endif %}>desc</option>
-                    <option value="range" {% if values.order_a == 'range' %}selected{% endif %}>range</option>
-                    <option value="list" {% if values.order_a == 'list' %}selected{% endif %}>list</option>
-                    <option value="slice" {% if values.order_a == 'slice' %}selected{% endif %}>slice</option>
+                    <option value="asc" {% if values.order_a == 'asc' %}selected{% endif %}>{{ t.order_asc }}</option>
+                    <option value="desc" {% if values.order_a == 'desc' %}selected{% endif %}>{{ t.order_desc }}</option>
+                    <option value="range" {% if values.order_a == 'range' %}selected{% endif %}>{{ t.order_range }}</option>
+                    <option value="list" {% if values.order_a == 'list' %}selected{% endif %}>{{ t.order_list }}</option>
+                    <option value="slice" {% if values.order_a == 'slice' %}selected{% endif %}>{{ t.order_slice }}</option>
                 </select>
             </label>
             <label>
-                Pages A (optional for asc/desc)
+                {{ t.pages_a }}
                 <input name="pages_a" value="{{ values.pages_a }}">
             </label>
             <label>
-                Order B
+                {{ t.order_b }}
                 <select name="order_b">
-                    <option value="asc" {% if values.order_b == 'asc' %}selected{% endif %}>asc</option>
-                    <option value="desc" {% if values.order_b == 'desc' %}selected{% endif %}>desc</option>
-                    <option value="range" {% if values.order_b == 'range' %}selected{% endif %}>range</option>
-                    <option value="list" {% if values.order_b == 'list' %}selected{% endif %}>list</option>
-                    <option value="slice" {% if values.order_b == 'slice' %}selected{% endif %}>slice</option>
+                    <option value="asc" {% if values.order_b == 'asc' %}selected{% endif %}>{{ t.order_asc }}</option>
+                    <option value="desc" {% if values.order_b == 'desc' %}selected{% endif %}>{{ t.order_desc }}</option>
+                    <option value="range" {% if values.order_b == 'range' %}selected{% endif %}>{{ t.order_range }}</option>
+                    <option value="list" {% if values.order_b == 'list' %}selected{% endif %}>{{ t.order_list }}</option>
+                    <option value="slice" {% if values.order_b == 'slice' %}selected{% endif %}>{{ t.order_slice }}</option>
                 </select>
             </label>
             <label>
-                Pages B (optional for asc/desc)
+                {{ t.pages_b }}
                 <input name="pages_b" value="{{ values.pages_b }}">
             </label>
         </div>
         <div class="grid">
             <label>
-                Start
+                {{ t.start }}
                 <select name="start">
                     <option value="A" {% if values.start == 'A' %}selected{% endif %}>A</option>
                     <option value="B" {% if values.start == 'B' %}selected{% endif %}>B</option>
                 </select>
             </label>
             <label>
-                Policy
+                {{ t.policy }}
                 <select name="policy">
-                    <option value="append" {% if values.policy == 'append' %}selected{% endif %}>append</option>
-                    <option value="truncate" {% if values.policy == 'truncate' %}selected{% endif %}>truncate</option>
-                    <option value="error" {% if values.policy == 'error' %}selected{% endif %}>error</option>
+                    <option value="append" {% if values.policy == 'append' %}selected{% endif %}>{{ t.policy_append }}</option>
+                    <option value="truncate" {% if values.policy == 'truncate' %}selected{% endif %}>{{ t.policy_truncate }}</option>
+                    <option value="error" {% if values.policy == 'error' %}selected{% endif %}>{{ t.policy_error }}</option>
                 </select>
             </label>
         </div>
         <div class="row">
             <label class="checkbox">
                 <input type="checkbox" name="strict" {% if values.strict %}checked{% endif %}>
-                Strict mode (reject duplicate pages)
+                {{ t.strict }}
             </label>
-            <button class="primary" type="submit">Merge PDFs</button>
+            <button class="primary" type="submit">{{ t.merge_button }}</button>
         </div>
     </form>
     <form action="/concat" method="post" enctype="multipart/form-data" data-form="concat" hidden>
         <label>
-            PDFs
+            {{ t.pdfs }}
             <input id="concat-files" type="file" name="files" accept="application/pdf,.pdf" multiple required>
         </label>
         <input id="concat-order" type="hidden" name="order">
         <ol id="concat-list" class="order-list"></ol>
         <div class="row">
-            <span class="meta">Output follows the order shown above.</span>
-            <button class="primary" type="submit">Merge PDFs</button>
+            <span class="meta">{{ t.output_order }}</span>
+            <button class="primary" type="submit">{{ t.merge_button }}</button>
         </div>
     </form>
 </main>
@@ -278,6 +284,11 @@
     const tabs = [...document.querySelectorAll(".tab")];
     const forms = [...document.querySelectorAll("[data-form]")];
     const initialMode = panel.dataset.initialMode === "concat" ? "concat" : "interleave";
+    const labels = {
+        up: {{ t.up_button | tojson }},
+        down: {{ t.down_button | tojson }},
+        remove: {{ t.remove_button | tojson }},
+    };
 
     function setMode(mode) {
         tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)));
@@ -310,18 +321,24 @@
             const up = document.createElement("button");
             up.type = "button";
             up.className = "move";
-            up.textContent = "Up";
+            up.textContent = labels.up;
             up.disabled = position === 0;
             up.addEventListener("click", () => move(position, -1));
 
             const down = document.createElement("button");
             down.type = "button";
             down.className = "move";
-            down.textContent = "Dn";
+            down.textContent = labels.down;
             down.disabled = position === order.length - 1;
             down.addEventListener("click", () => move(position, 1));
 
-            item.append(name, up, down);
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "move remove";
+            remove.textContent = labels.remove;
+            remove.addEventListener("click", () => removeFile(position));
+
+            item.append(name, up, down, remove);
             list.append(item);
         });
     }
@@ -329,6 +346,19 @@
     function move(position, direction) {
         const next = position + direction;
         [order[position], order[next]] = [order[next], order[position]];
+        renderOrder();
+    }
+
+    function removeFile(position) {
+        const files = [...fileInput.files];
+        const keptFiles = order
+            .filter((_, index) => index !== position)
+            .map((fileIndex) => files[fileIndex]);
+
+        const transfer = new DataTransfer();
+        keptFiles.forEach((file) => transfer.items.add(file));
+        fileInput.files = transfer.files;
+        order = keptFiles.map((_, index) => index);
         renderOrder();
     }
 

@@ -34,6 +34,95 @@ if hasattr(MultiPartParser, "max_file_size"):
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+TRANSLATIONS = {
+    "en": {
+        "page_title": "PDF Interleave",
+        "result_title": "PDF Interleave Result",
+        "meta_prefix": "RAM-only output, link TTL",
+        "meta_middle": "max",
+        "meta_suffix": "MB per file, up to",
+        "meta_end": "files.",
+        "tab_interleave": "Interleave 2 PDFs",
+        "tab_concat": "Merge N PDFs",
+        "operation_label": "PDF operation",
+        "pdf_a": "PDF A",
+        "pdf_b": "PDF B",
+        "order_a": "Order A",
+        "order_b": "Order B",
+        "order_asc": "Ascending",
+        "order_desc": "Descending",
+        "order_range": "Range",
+        "order_list": "List",
+        "order_slice": "Slice",
+        "pages_a": "Pages A (optional for asc/desc)",
+        "pages_b": "Pages B (optional for asc/desc)",
+        "start": "Start",
+        "policy": "Policy",
+        "policy_append": "Append",
+        "policy_truncate": "Truncate",
+        "policy_error": "Error",
+        "strict": "Strict mode (reject duplicate pages)",
+        "merge_button": "Merge PDFs",
+        "pdfs": "PDFs",
+        "output_order": "Output follows the order shown above.",
+        "up_button": "Up",
+        "down_button": "Dn",
+        "remove_button": "Remove",
+        "result_ready": "Merged PDF Ready",
+        "size": "Size",
+        "size_unit": "KB",
+        "expires_at": "Expires at",
+        "one_shot_policy": "Link policy: one-shot download enabled.",
+        "reusable_policy": "Link policy: reusable until expiration.",
+        "download": "Download PDF",
+        "back": "Back",
+        "token": "Token",
+    },
+    "fr": {
+        "page_title": "PDF Interleave",
+        "result_title": "Résultat PDF Interleave",
+        "meta_prefix": "Sortie en RAM uniquement, lien valable",
+        "meta_middle": "max",
+        "meta_suffix": "Mo par fichier, jusqu'à",
+        "meta_end": "fichiers.",
+        "tab_interleave": "Entrelacer 2 PDFs",
+        "tab_concat": "Fusionner N PDFs",
+        "operation_label": "Opération PDF",
+        "pdf_a": "PDF A",
+        "pdf_b": "PDF B",
+        "order_a": "Ordre A",
+        "order_b": "Ordre B",
+        "order_asc": "Croissant",
+        "order_desc": "Décroissant",
+        "order_range": "Plage",
+        "order_list": "Liste",
+        "order_slice": "Tranche",
+        "pages_a": "Pages A (optionnel pour asc/desc)",
+        "pages_b": "Pages B (optionnel pour asc/desc)",
+        "start": "Départ",
+        "policy": "Politique",
+        "policy_append": "Ajouter le reste",
+        "policy_truncate": "Tronquer",
+        "policy_error": "Erreur",
+        "strict": "Mode strict (refuser les pages en double)",
+        "merge_button": "Fusionner les PDFs",
+        "pdfs": "PDFs",
+        "output_order": "La sortie suit l'ordre affiché ci-dessus.",
+        "up_button": "Haut",
+        "down_button": "Bas",
+        "remove_button": "Supprimer",
+        "result_ready": "PDF fusionné prêt",
+        "size": "Taille",
+        "size_unit": "Ko",
+        "expires_at": "Expire le",
+        "one_shot_policy": "Politique du lien : téléchargement unique activé.",
+        "reusable_policy": "Politique du lien : réutilisable jusqu'à expiration.",
+        "download": "Télécharger le PDF",
+        "back": "Retour",
+        "token": "Jeton",
+    },
+}
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -121,17 +210,7 @@ async def merge_ui(
             },
         )
 
-    return TEMPLATES.TemplateResponse(
-        request=request,
-        name="result.html",
-        context={
-            "token": result["token"],
-            "download_url": result["download_url"],
-            "expires_at": result["expires_at_human"],
-            "size_kb": round(result["size"] / 1024, 2),
-            "one_shot": SETTINGS.one_shot_download,
-        },
-    )
+    return _render_result(request=request, result=result)
 
 
 @app.post("/concat", response_class=HTMLResponse)
@@ -154,17 +233,7 @@ async def concat_ui(
             form_values={"mode": "concat"},
         )
 
-    return TEMPLATES.TemplateResponse(
-        request=request,
-        name="result.html",
-        context={
-            "token": result["token"],
-            "download_url": result["download_url"],
-            "expires_at": result["expires_at_human"],
-            "size_kb": round(result["size"] / 1024, 2),
-            "one_shot": SETTINGS.one_shot_download,
-        },
-    )
+    return _render_result(request=request, result=result)
 
 
 @app.get("/download/{token}", name="download_file")
@@ -285,6 +354,7 @@ def _render_index(
         request=request,
         name="index.html",
         context={
+            **_language_context(request),
             "error_message": error_message,
             "values": values,
             "max_file_mb": SETTINGS.max_file_mb,
@@ -292,6 +362,54 @@ def _render_index(
             "ttl_seconds": SETTINGS.download_ttl_seconds,
         },
     )
+
+
+def _render_result(*, request: Request, result: dict[str, object]):
+    return TEMPLATES.TemplateResponse(
+        request=request,
+        name="result.html",
+        context={
+            **_language_context(request),
+            "token": result["token"],
+            "download_url": result["download_url"],
+            "expires_at": result["expires_at_human"],
+            "size_kb": round(result["size"] / 1024, 2),
+            "one_shot": SETTINGS.one_shot_download,
+        },
+    )
+
+
+def _language_context(request: Request) -> dict[str, object]:
+    lang = _preferred_language(request.headers.get("accept-language", ""))
+    return {
+        "lang": lang,
+        "t": TRANSLATIONS[lang],
+    }
+
+
+def _preferred_language(accept_language: str) -> str:
+    candidates: list[tuple[float, int, str]] = []
+    for index, raw_part in enumerate(accept_language.split(",")):
+        part = raw_part.strip()
+        if not part:
+            continue
+
+        language, _, raw_params = part.partition(";")
+        q = 1.0
+        for raw_param in raw_params.split(";"):
+            key, _, value = raw_param.strip().partition("=")
+            if key == "q":
+                try:
+                    q = float(value)
+                except ValueError:
+                    q = 0.0
+        candidates.append((q, -index, language.lower()))
+
+    for _, _, language in sorted(candidates, reverse=True):
+        base_language = language.split("-", 1)[0]
+        if base_language in TRANSLATIONS:
+            return base_language
+    return "en"
 
 
 def _enforce_rate_limit(request: Request, *, kind: str) -> None:

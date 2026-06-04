@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Interleave Result</title>
+    <title>{{ t.result_title }}</title>
     <style>
         :root {
             --bg: #f2f6f7;
@@ -77,20 +77,20 @@
 </head>
 <body>
 <main class="card">
-    <h1>Merged PDF Ready</h1>
+    <h1>{{ t.result_ready }}</h1>
     <div class="meta">
-        Size: {{ size_kb }} KB<br>
-        Expires at: {{ expires_at }}<br>
+        {{ t.size }}: {{ size_kb }} {{ t.size_unit }}<br>
+        {{ t.expires_at }}: {{ expires_at }}<br>
         {% if one_shot %}
-        Link policy: one-shot download enabled.
+        {{ t.one_shot_policy }}
         {% else %}
-        Link policy: reusable until expiration.
+        {{ t.reusable_policy }}
         {% endif %}
     </div>
-    <a class="btn" href="{{ download_url }}">Download PDF</a>
-    <a class="secondary" href="/">Back</a>
+    <a class="btn" href="{{ download_url }}">{{ t.download }}</a>
+    <a class="secondary" href="/">{{ t.back }}</a>
     <div class="meta" style="margin-top:14px;">
-        Token: <code>{{ token }}</code>
+        {{ t.token }}: <code>{{ token }}</code>
     </div>
 </main>
 </body>
