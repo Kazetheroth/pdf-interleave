@@ -44,6 +44,7 @@ TRANSLATIONS = {
         "meta_end": "files.",
         "tab_interleave": "Interleave 2 PDFs",
         "tab_concat": "Merge N PDFs",
+        "tab_images": "Images to PDF",
         "operation_label": "PDF operation",
         "pdf_a": "PDF A",
         "pdf_b": "PDF B",
@@ -64,7 +65,11 @@ TRANSLATIONS = {
         "strict": "Strict mode (reject duplicate pages)",
         "merge_button": "Merge PDFs",
         "pdfs": "PDFs",
+        "images": "Images",
         "output_order": "Output follows the order shown above.",
+        "image_output_order": "The PDF follows the image order shown above.",
+        "auto_orient": "Auto-orient images from EXIF data",
+        "create_pdf_button": "Create PDF",
         "up_button": "Up",
         "down_button": "Dn",
         "remove_button": "Remove",
@@ -87,6 +92,7 @@ TRANSLATIONS = {
         "meta_end": "fichiers.",
         "tab_interleave": "Entrelacer 2 PDFs",
         "tab_concat": "Fusionner N PDFs",
+        "tab_images": "Images vers PDF",
         "operation_label": "Opération PDF",
         "pdf_a": "PDF A",
         "pdf_b": "PDF B",
@@ -107,7 +113,11 @@ TRANSLATIONS = {
         "strict": "Mode strict (refuser les pages en double)",
         "merge_button": "Fusionner les PDFs",
         "pdfs": "PDFs",
+        "images": "Images",
         "output_order": "La sortie suit l'ordre affiché ci-dessus.",
+        "image_output_order": "Le PDF suit l'ordre des images affiché ci-dessus.",
+        "auto_orient": "Orientation automatique depuis les données EXIF",
+        "create_pdf_button": "Créer le PDF",
         "up_button": "Haut",
         "down_button": "Bas",
         "remove_button": "Supprimer",
@@ -146,7 +156,14 @@ async def _cleanup_loop() -> None:
 
 @app.middleware("http")
 async def add_no_cache_and_limit_request_size(request: Request, call_next):
-    if request.method == "POST" and request.url.path in {"/merge", "/concat", "/api/merge", "/api/concat"}:
+    if request.method == "POST" and request.url.path in {
+        "/merge",
+        "/concat",
+        "/images",
+        "/api/merge",
+        "/api/concat",
+        "/api/images",
+    }:
         content_length = request.headers.get("content-length")
         if content_length is None:
             return JSONResponse(status_code=411, content={"detail": "Content-Length header required."})
@@ -236,6 +253,31 @@ async def concat_ui(
     return _render_result(request=request, result=result)
 
 
+@app.post("/images", response_class=HTMLResponse)
+async def images_ui(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    order: str | None = Form(default=None),
+    auto_orient: str | None = Form(default=None),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_images(
+            request=request,
+            files=files,
+            order=order,
+            auto_orient=(auto_orient is not None),
+        )
+    except UserInputError as exc:
+        return _render_index(
+            request=request,
+            error_message=str(exc),
+            form_values={"mode": "images"},
+        )
+
+    return _render_result(request=request, result=result)
+
+
 @app.get("/download/{token}", name="download_file")
 async def download_file(request: Request, token: str):
     _enforce_rate_limit(request, kind="download")
@@ -313,6 +355,34 @@ async def concat_api(
     )
 
 
+@app.post("/api/images")
+async def images_api(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    order: str | None = Form(default=None),
+    auto_orient: bool = Form(True),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_images(
+            request=request,
+            files=files,
+            order=order,
+            auto_orient=auto_orient,
+        )
+    except UserInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse(
+        {
+            "token": result["token"],
+            "download_url": result["download_url"],
+            "expires_at": result["expires_at_iso"],
+            "size": result["size"],
+        }
+    )
+
+
 @app.get("/api/status/{token}")
 async def status_api(token: str):
     entry = STORE.get_valid(token)
@@ -345,6 +415,7 @@ def _render_index(
         "start": "A",
         "policy": "append",
         "strict": False,
+        "auto_orient": True,
         "mode": "interleave",
     }
     if form_values:
@@ -575,6 +646,68 @@ async def _process_concat(
     }
 
 
+async def _process_images(
+    *,
+    request: Request,
+    files: list[UploadFile],
+    order: str | None,
+    auto_orient: bool,
+) -> dict[str, object]:
+    try:
+        from core.image_pdf import ImagePdfError, write_images_pdf_to_bytes
+    except ModuleNotFoundError as exc:
+        if exc.name == "PIL":
+            raise UserInputError("Server is missing dependency 'Pillow'.") from exc
+        raise
+
+    if len(files) < 1:
+        raise UserInputError("At least one image is required.")
+    if len(files) > SETTINGS.max_upload_files:
+        raise UserInputError(f"Image-to-PDF accepts at most {SETTINGS.max_upload_files} image files.")
+
+    ordered_indexes = _parse_concat_order(order, file_count=len(files))
+    ordered_files = [files[index] for index in ordered_indexes]
+    image_items = [
+        (
+            upload.filename or f"image-{index}",
+            await _read_image_upload(upload, label=f"Image {index}"),
+        )
+        for index, upload in enumerate(ordered_files, start=1)
+    ]
+
+    async with MERGE_SEMAPHORE:
+        try:
+            output_bytes = write_images_pdf_to_bytes(
+                image_items=image_items,
+                auto_orient=auto_orient,
+            )
+        except ImagePdfError as exc:
+            raise UserInputError(str(exc)) from exc
+
+    if len(output_bytes) > SETTINGS.max_output_bytes:
+        raise UserInputError("Generated PDF exceeds RAM policy size limit.")
+
+    filename = _build_images_output_filename([file.filename for file in ordered_files])
+    try:
+        token, entry = STORE.put(
+            pdf_bytes=output_bytes,
+            filename=filename,
+            ttl_seconds=SETTINGS.download_ttl_seconds,
+        )
+    except StoreFullError as exc:
+        raise UserInputError(str(exc)) from exc
+
+    download_url = str(request.url_for("download_file", token=token))
+    expires_at_dt = datetime.fromtimestamp(entry.expires_at, tz=timezone.utc)
+    return {
+        "token": token,
+        "download_url": download_url,
+        "expires_at_human": expires_at_dt.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "expires_at_iso": expires_at_dt.isoformat(),
+        "size": entry.size,
+    }
+
+
 def _parse_concat_order(order: str | None, *, file_count: int) -> list[int]:
     if order is None or not order.strip():
         return list(range(file_count))
@@ -601,6 +734,18 @@ async def _read_pdf_upload(upload: UploadFile, *, label: str) -> bytes:
     return data
 
 
+async def _read_image_upload(upload: UploadFile, *, label: str) -> bytes:
+    if upload.content_type is not None and not upload.content_type.startswith("image/"):
+        raise UserInputError(f"{label}: invalid MIME type. Only image files are accepted.")
+
+    data = await upload.read()
+    if not data:
+        raise UserInputError(f"{label}: empty file.")
+    if len(data) > SETTINGS.max_file_bytes:
+        raise UserInputError(f"{label}: file too large. Max size is {SETTINGS.max_file_mb} MB.")
+    return data
+
+
 def _build_output_filename(name_a: str | None, name_b: str | None) -> str:
     part_a = _sanitize_filename_component(name_a or "a.pdf")
     part_b = _sanitize_filename_component(name_b or "b.pdf")
@@ -614,6 +759,15 @@ def _build_concat_output_filename(names: list[str | None]) -> str:
     first = _sanitize_filename_component(names[0] or "first.pdf")
     last = _sanitize_filename_component(names[-1] or "last.pdf")
     return f"{first}_{last}_{len(names)}-pdfs_merged.pdf"
+
+
+def _build_images_output_filename(names: list[str | None]) -> str:
+    if not names:
+        return "images.pdf"
+
+    first = _sanitize_filename_component(names[0] or "first-image")
+    last = _sanitize_filename_component(names[-1] or "last-image")
+    return f"{first}_{last}_{len(names)}-images.pdf"
 
 
 def _sanitize_filename_component(filename: str) -> str:

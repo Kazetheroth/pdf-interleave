@@ -6,6 +6,7 @@ A Python-based PDF interleaving tool supporting:
 -   RAM-only Web version
 -   Configurable page ordering
 -   Sequential concatenation of N PDFs
+-   Image-to-PDF conversion with optional EXIF auto-orientation
 -   Secure ephemeral downloads
 
 ------------------------------------------------------------------------
@@ -33,12 +34,19 @@ Concatenate PDFs in the exact order provided:
 pdf_interleave concat cover.pdf chapter-1.pdf chapter-2.pdf appendix.pdf -o book.pdf
 ```
 
+Convert images to one PDF, one image per page:
+
+``` bash
+pdf_interleave images page-1.jpg page-2.png page-3.webp -o images.pdf --auto-orient
+```
+
 ------------------------------------------------------------------------
 
 ### 🌐 Web Mode (RAM-Only)
 
 -   Interleave 2 PDFs
 -   Concatenate up to 20 PDFs by default
+-   Convert images to a PDF with reorder/remove controls
 -   15 MB per file
 -   Output generated fully in memory
 -   Temporary download link (default: 5 minutes)

@@ -196,6 +196,7 @@
     <nav class="tabs" aria-label="{{ t.operation_label }}">
         <button class="tab" type="button" data-mode="interleave" aria-selected="true">{{ t.tab_interleave }}</button>
         <button class="tab" type="button" data-mode="concat" aria-selected="false">{{ t.tab_concat }}</button>
+        <button class="tab" type="button" data-mode="images" aria-selected="false">{{ t.tab_images }}</button>
     </nav>
     {% if error_message %}
     <div class="error">{{ error_message }}</div>
@@ -278,12 +279,28 @@
             <button class="primary" type="submit">{{ t.merge_button }}</button>
         </div>
     </form>
+    <form action="/images" method="post" enctype="multipart/form-data" data-form="images" hidden>
+        <label>
+            {{ t.images }}
+            <input id="image-files" type="file" name="files" accept="image/*" multiple required>
+        </label>
+        <input id="image-order" type="hidden" name="order">
+        <ol id="image-list" class="order-list"></ol>
+        <div class="row">
+            <label class="checkbox">
+                <input type="checkbox" name="auto_orient" checked>
+                {{ t.auto_orient }}
+            </label>
+            <span class="meta">{{ t.image_output_order }}</span>
+            <button class="primary" type="submit">{{ t.create_pdf_button }}</button>
+        </div>
+    </form>
 </main>
 <script>
     const panel = document.querySelector(".panel");
     const tabs = [...document.querySelectorAll(".tab")];
     const forms = [...document.querySelectorAll("[data-form]")];
-    const initialMode = panel.dataset.initialMode === "concat" ? "concat" : "interleave";
+    const initialMode = ["concat", "images"].includes(panel.dataset.initialMode) ? panel.dataset.initialMode : "interleave";
     const labels = {
         up: {{ t.up_button | tojson }},
         down: {{ t.down_button | tojson }},
@@ -300,72 +317,77 @@
     tabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
     setMode(initialMode);
 
-    const fileInput = document.getElementById("concat-files");
-    const orderInput = document.getElementById("concat-order");
-    const list = document.getElementById("concat-list");
-    let order = [];
+    function setupOrderedFiles(fileInputId, orderInputId, listId) {
+        const fileInput = document.getElementById(fileInputId);
+        const orderInput = document.getElementById(orderInputId);
+        const list = document.getElementById(listId);
+        let order = [];
 
-    function renderOrder() {
-        const files = [...fileInput.files];
-        orderInput.value = order.join(",");
-        list.innerHTML = "";
+        function renderOrder() {
+            const files = [...fileInput.files];
+            orderInput.value = order.join(",");
+            list.innerHTML = "";
 
-        order.forEach((fileIndex, position) => {
-            const item = document.createElement("li");
-            item.className = "order-item";
+            order.forEach((fileIndex, position) => {
+                const item = document.createElement("li");
+                item.className = "order-item";
 
-            const name = document.createElement("span");
-            name.className = "file-name";
-            name.textContent = `${position + 1}. ${files[fileIndex].name}`;
+                const name = document.createElement("span");
+                name.className = "file-name";
+                name.textContent = `${position + 1}. ${files[fileIndex].name}`;
 
-            const up = document.createElement("button");
-            up.type = "button";
-            up.className = "move";
-            up.textContent = labels.up;
-            up.disabled = position === 0;
-            up.addEventListener("click", () => move(position, -1));
+                const up = document.createElement("button");
+                up.type = "button";
+                up.className = "move";
+                up.textContent = labels.up;
+                up.disabled = position === 0;
+                up.addEventListener("click", () => move(position, -1));
 
-            const down = document.createElement("button");
-            down.type = "button";
-            down.className = "move";
-            down.textContent = labels.down;
-            down.disabled = position === order.length - 1;
-            down.addEventListener("click", () => move(position, 1));
+                const down = document.createElement("button");
+                down.type = "button";
+                down.className = "move";
+                down.textContent = labels.down;
+                down.disabled = position === order.length - 1;
+                down.addEventListener("click", () => move(position, 1));
 
-            const remove = document.createElement("button");
-            remove.type = "button";
-            remove.className = "move remove";
-            remove.textContent = labels.remove;
-            remove.addEventListener("click", () => removeFile(position));
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "move remove";
+                remove.textContent = labels.remove;
+                remove.addEventListener("click", () => removeFile(position));
 
-            item.append(name, up, down, remove);
-            list.append(item);
+                item.append(name, up, down, remove);
+                list.append(item);
+            });
+        }
+
+        function move(position, direction) {
+            const next = position + direction;
+            [order[position], order[next]] = [order[next], order[position]];
+            renderOrder();
+        }
+
+        function removeFile(position) {
+            const files = [...fileInput.files];
+            const keptFiles = order
+                .filter((_, index) => index !== position)
+                .map((fileIndex) => files[fileIndex]);
+
+            const transfer = new DataTransfer();
+            keptFiles.forEach((file) => transfer.items.add(file));
+            fileInput.files = transfer.files;
+            order = keptFiles.map((_, index) => index);
+            renderOrder();
+        }
+
+        fileInput.addEventListener("change", () => {
+            order = [...fileInput.files].map((_, index) => index);
+            renderOrder();
         });
     }
 
-    function move(position, direction) {
-        const next = position + direction;
-        [order[position], order[next]] = [order[next], order[position]];
-        renderOrder();
-    }
-
-    function removeFile(position) {
-        const files = [...fileInput.files];
-        const keptFiles = order
-            .filter((_, index) => index !== position)
-            .map((fileIndex) => files[fileIndex]);
-
-        const transfer = new DataTransfer();
-        keptFiles.forEach((file) => transfer.items.add(file));
-        fileInput.files = transfer.files;
-        order = keptFiles.map((_, index) => index);
-        renderOrder();
-    }
-
-    fileInput.addEventListener("change", () => {
-        order = [...fileInput.files].map((_, index) => index);
-        renderOrder();
-    });
+    setupOrderedFiles("concat-files", "concat-order", "concat-list");
+    setupOrderedFiles("image-files", "image-order", "image-list");
 </script>
 </body>
 </html>

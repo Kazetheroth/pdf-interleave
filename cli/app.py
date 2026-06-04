@@ -59,6 +59,17 @@ def build_parser() -> argparse.ArgumentParser:
     concat_parser.add_argument("-o", "--output", required=True, help="Output PDF path")
     concat_parser.add_argument("--verbose", action="store_true", help="Print concatenation diagnostics.")
 
+    images_parser = subparsers.add_parser("images", help="Convert one or more images to a single PDF.")
+    images_parser.add_argument("inputs", nargs="+", help="Input images in output order")
+    images_parser.add_argument("-o", "--output", required=True, help="Output PDF path")
+    images_parser.add_argument(
+        "--auto-orient",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Apply EXIF orientation before writing pages (default: enabled).",
+    )
+    images_parser.add_argument("--verbose", action="store_true", help="Print image conversion diagnostics.")
+
     return parser
 
 
@@ -162,6 +173,38 @@ def run_concat(args: argparse.Namespace) -> int:
         raise ValidationError(str(exc)) from exc
 
 
+def run_images(args: argparse.Namespace) -> int:
+    inputs = [
+        validate_input_file(path, label=f"Image {index}")
+        for index, path in enumerate(args.inputs, start=1)
+    ]
+    output = validate_output_path(args.output, input_paths=inputs)
+
+    try:
+        from core.image_pdf import ImagePdfError, write_images_pdf
+    except ModuleNotFoundError as exc:
+        if exc.name == "PIL":
+            raise DependencyError("Missing dependency 'Pillow'. Install it with: pip install Pillow") from exc
+        raise
+
+    try:
+        write_images_pdf(
+            image_paths=inputs,
+            output_path=output,
+            auto_orient=args.auto_orient,
+        )
+
+        if args.verbose:
+            _print_images_verbose_summary(
+                inputs=inputs,
+                output=output,
+                auto_orient=args.auto_orient,
+            )
+        return 0
+    except ImagePdfError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
 def _print_verbose_summary(
     *,
     input_a: Path,
@@ -193,6 +236,18 @@ def _print_concat_verbose_summary(
     print(f"Output: {output} ({total_pages} pages)")
 
 
+def _print_images_verbose_summary(
+    *,
+    inputs: list[Path],
+    output: Path,
+    auto_orient: bool,
+) -> None:
+    for index, input_path in enumerate(inputs, start=1):
+        print(f"{index}: {input_path}")
+    print(f"auto_orient={auto_orient}")
+    print(f"Output: {output} ({len(inputs)} pages)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -202,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_merge(args)
         if args.command == "concat":
             return run_concat(args)
+        if args.command == "images":
+            return run_images(args)
         parser.print_help()
         return 2
     except (FileNotFoundError, ValidationError, PageRangeError, DependencyError) as exc:
