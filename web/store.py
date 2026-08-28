@@ -13,6 +13,7 @@ class StoredPdf:
     expires_at: float
     filename: str
     size: int
+    media_type: str = "application/pdf"
 
 
 class StoreFullError(RuntimeError):
@@ -25,7 +26,31 @@ class RamTokenStore:
         self._entries: dict[str, StoredPdf] = {}
         self._lock = threading.Lock()
 
-    def put(self, *, pdf_bytes: bytes, filename: str, ttl_seconds: int) -> tuple[str, StoredPdf]:
+    def put(
+        self,
+        *,
+        pdf_bytes: bytes,
+        filename: str,
+        ttl_seconds: int,
+        media_type: str = "application/pdf",
+    ) -> tuple[str, StoredPdf]:
+        """Store a PDF while preserving the original public API."""
+        return self.put_bytes(
+            data=pdf_bytes,
+            filename=filename,
+            ttl_seconds=ttl_seconds,
+            media_type=media_type,
+        )
+
+    def put_bytes(
+        self,
+        *,
+        data: bytes,
+        filename: str,
+        ttl_seconds: int,
+        media_type: str,
+    ) -> tuple[str, StoredPdf]:
+        """Store any short-lived downloadable binary in RAM."""
         now = time.time()
         with self._lock:
             self._purge_expired_locked(now)
@@ -34,11 +59,12 @@ class RamTokenStore:
 
             token = self._generate_unique_token_locked()
             entry = StoredPdf(
-                bytes=pdf_bytes,
+                bytes=data,
                 created_at=now,
                 expires_at=now + ttl_seconds,
                 filename=filename,
-                size=len(pdf_bytes),
+                size=len(data),
+                media_type=media_type,
             )
             self._entries[token] = entry
             return token, entry

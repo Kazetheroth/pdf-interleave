@@ -77,8 +77,15 @@
 </head>
 <body>
 <main class="card">
+    {% if result_kind == "video" %}
+    <h1>{{ t.video_result_ready }}</h1>
+    {% else %}
     <h1>{{ t.result_ready }}</h1>
+    {% endif %}
     <div class="meta">
+        {% if result_kind == "video" %}
+        {{ t.screenshots_count }}: {{ frame_count }}<br>
+        {% endif %}
         {{ t.size }}: {{ size_kb }} {{ t.size_unit }}<br>
         {{ t.expires_at }}: {{ expires_at }}<br>
         {% if one_shot %}
@@ -87,7 +94,7 @@
         {{ t.reusable_policy }}
         {% endif %}
     </div>
-    <a class="btn" href="{{ download_url }}">{{ t.download }}</a>
+    <a class="btn" href="{{ download_url }}">{% if result_kind == "video" %}{{ t.download_screenshots }}{% else %}{{ t.download }}{% endif %}</a>
     <a class="secondary" href="/">{{ t.back }}</a>
     <div class="meta" style="margin-top:14px;">
         {{ t.token }}: <code>{{ token }}</code>

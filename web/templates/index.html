@@ -91,7 +91,7 @@
             font-size: 0.93rem;
             color: #31414d;
         }
-        input, select {
+        input, select, textarea {
             border: 1px solid #c8bec0;
             border-radius: 10px;
             padding: 10px 11px;
@@ -99,6 +99,7 @@
             background: #fff;
             color: var(--ink);
         }
+        textarea { resize: vertical; }
         .row {
             display: flex;
             justify-content: space-between;
@@ -197,6 +198,7 @@
         <button class="tab" type="button" data-mode="interleave" aria-selected="true">{{ t.tab_interleave }}</button>
         <button class="tab" type="button" data-mode="concat" aria-selected="false">{{ t.tab_concat }}</button>
         <button class="tab" type="button" data-mode="images" aria-selected="false">{{ t.tab_images }}</button>
+        <button class="tab" type="button" data-mode="video" aria-selected="false">{{ t.tab_video }}</button>
     </nav>
     {% if error_message %}
     <div class="error">{{ error_message }}</div>
@@ -295,12 +297,37 @@
             <button class="primary" type="submit">{{ t.create_pdf_button }}</button>
         </div>
     </form>
+    <form action="/video" method="post" enctype="multipart/form-data" data-form="video" hidden>
+        <label>
+            {{ t.video }}
+            <input id="video-file" type="file" name="video" accept="video/*,.mp4,.mov,.m4v,.webm,.avi,.mkv" required>
+        </label>
+        <label>
+            {{ t.video_timestamps }}
+            <textarea name="timestamps" rows="3" placeholder="3, 8.5, 42">{{ values.video_timestamps }}</textarea>
+            <span class="meta">{{ t.video_timestamps_help }}</span>
+        </label>
+        <div class="grid">
+            <label>
+                {{ t.video_interval }}
+                <input type="number" name="interval_seconds" value="{{ values.video_interval }}" min="0.001" step="0.1" required>
+            </label>
+            <label>
+                {{ t.video_max_frames }}
+                <input type="number" name="max_frames" value="{{ values.video_max_frames }}" min="1" max="{{ max_video_frames }}" step="1" required>
+            </label>
+        </div>
+        <div class="row">
+            <span class="meta">{{ t.video_output_note }} {{ t.video_temp_note }} {{ max_video_duration_seconds }}s max.</span>
+            <button class="primary" type="submit">{{ t.extract_screenshots_button }}</button>
+        </div>
+    </form>
 </main>
 <script>
     const panel = document.querySelector(".panel");
     const tabs = [...document.querySelectorAll(".tab")];
     const forms = [...document.querySelectorAll("[data-form]")];
-    const initialMode = ["concat", "images"].includes(panel.dataset.initialMode) ? panel.dataset.initialMode : "interleave";
+    const initialMode = ["concat", "images", "video"].includes(panel.dataset.initialMode) ? panel.dataset.initialMode : "interleave";
     const labels = {
         up: {{ t.up_button | tojson }},
         down: {{ t.down_button | tojson }},

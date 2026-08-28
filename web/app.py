@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
+import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from io import BytesIO
@@ -45,6 +47,7 @@ TRANSLATIONS = {
         "tab_interleave": "Interleave 2 PDFs",
         "tab_concat": "Merge N PDFs",
         "tab_images": "Images to PDF",
+        "tab_video": "Video screenshots",
         "operation_label": "PDF operation",
         "pdf_a": "PDF A",
         "pdf_b": "PDF B",
@@ -66,6 +69,14 @@ TRANSLATIONS = {
         "merge_button": "Merge PDFs",
         "pdfs": "PDFs",
         "images": "Images",
+        "video": "Video",
+        "video_timestamps": "Precise seconds (optional)",
+        "video_timestamps_help": "Enter one or more seconds separated by commas or spaces, e.g. 3, 8.5, 42.",
+        "video_interval": "Interval fallback (seconds)",
+        "video_max_frames": "Maximum screenshots",
+        "video_output_note": "Frames are delivered in a temporary ZIP archive.",
+        "video_temp_note": "The uploaded video and intermediate frames are deleted after processing.",
+        "extract_screenshots_button": "Extract screenshots",
         "output_order": "Output follows the order shown above.",
         "image_output_order": "The PDF follows the image order shown above.",
         "auto_orient": "Auto-orient images from EXIF data",
@@ -74,12 +85,15 @@ TRANSLATIONS = {
         "down_button": "Dn",
         "remove_button": "Remove",
         "result_ready": "Merged PDF Ready",
+        "video_result_ready": "Video screenshots ready",
+        "screenshots_count": "Screenshots",
         "size": "Size",
         "size_unit": "KB",
         "expires_at": "Expires at",
         "one_shot_policy": "Link policy: one-shot download enabled.",
         "reusable_policy": "Link policy: reusable until expiration.",
         "download": "Download PDF",
+        "download_screenshots": "Download screenshots (ZIP)",
         "back": "Back",
         "token": "Token",
     },
@@ -93,6 +107,7 @@ TRANSLATIONS = {
         "tab_interleave": "Entrelacer 2 PDFs",
         "tab_concat": "Fusionner N PDFs",
         "tab_images": "Images vers PDF",
+        "tab_video": "Captures vidéo",
         "operation_label": "Opération PDF",
         "pdf_a": "PDF A",
         "pdf_b": "PDF B",
@@ -114,6 +129,14 @@ TRANSLATIONS = {
         "merge_button": "Fusionner les PDFs",
         "pdfs": "PDFs",
         "images": "Images",
+        "video": "Vidéo",
+        "video_timestamps": "Secondes précises (optionnel)",
+        "video_timestamps_help": "Saisissez une ou plusieurs secondes séparées par des virgules ou des espaces, par ex. 3, 8.5, 42.",
+        "video_interval": "Intervalle de secours (secondes)",
+        "video_max_frames": "Nombre maximum de captures",
+        "video_output_note": "Les images sont fournies dans une archive ZIP temporaire.",
+        "video_temp_note": "La vidéo et les images intermédiaires sont supprimées après le traitement.",
+        "extract_screenshots_button": "Extraire les captures",
         "output_order": "La sortie suit l'ordre affiché ci-dessus.",
         "image_output_order": "Le PDF suit l'ordre des images affiché ci-dessus.",
         "auto_orient": "Orientation automatique depuis les données EXIF",
@@ -122,12 +145,15 @@ TRANSLATIONS = {
         "down_button": "Bas",
         "remove_button": "Supprimer",
         "result_ready": "PDF fusionné prêt",
+        "video_result_ready": "Captures vidéo prêtes",
+        "screenshots_count": "Captures",
         "size": "Taille",
         "size_unit": "Ko",
         "expires_at": "Expire le",
         "one_shot_policy": "Politique du lien : téléchargement unique activé.",
         "reusable_policy": "Politique du lien : réutilisable jusqu'à expiration.",
         "download": "Télécharger le PDF",
+        "download_screenshots": "Télécharger les captures (ZIP)",
         "back": "Retour",
         "token": "Jeton",
     },
@@ -160,9 +186,11 @@ async def add_no_cache_and_limit_request_size(request: Request, call_next):
         "/merge",
         "/concat",
         "/images",
+        "/video",
         "/api/merge",
         "/api/concat",
         "/api/images",
+        "/api/video",
     }:
         content_length = request.headers.get("content-length")
         if content_length is None:
@@ -278,6 +306,38 @@ async def images_ui(
     return _render_result(request=request, result=result)
 
 
+@app.post("/video", response_class=HTMLResponse)
+async def video_ui(
+    request: Request,
+    video: UploadFile = File(...),
+    timestamps: str | None = Form(default=None),
+    interval_seconds: str = Form("1"),
+    max_frames: str | None = Form(default=None),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_video(
+            request=request,
+            video=video,
+            timestamps=timestamps,
+            interval_seconds=interval_seconds,
+            max_frames=max_frames,
+        )
+    except UserInputError as exc:
+        return _render_index(
+            request=request,
+            error_message=str(exc),
+            form_values={
+                "mode": "video",
+                "video_timestamps": timestamps or "",
+                "video_interval": interval_seconds,
+                "video_max_frames": max_frames or str(SETTINGS.max_video_frames),
+            },
+        )
+
+    return _render_result(request=request, result=result)
+
+
 @app.get("/download/{token}", name="download_file")
 async def download_file(request: Request, token: str):
     _enforce_rate_limit(request, kind="download")
@@ -286,7 +346,7 @@ async def download_file(request: Request, token: str):
         raise HTTPException(status_code=404, detail="Link expired.")
 
     headers = {"Content-Disposition": f'attachment; filename="{entry.filename}"'}
-    return StreamingResponse(BytesIO(entry.bytes), media_type="application/pdf", headers=headers)
+    return StreamingResponse(BytesIO(entry.bytes), media_type=entry.media_type, headers=headers)
 
 
 @app.post("/api/merge")
@@ -383,6 +443,41 @@ async def images_api(
     )
 
 
+@app.post("/api/video")
+async def video_api(
+    request: Request,
+    video: UploadFile = File(...),
+    timestamps: str | None = Form(default=None),
+    interval_seconds: str = Form("1"),
+    max_frames: str | None = Form(default=None),
+):
+    _enforce_rate_limit(request, kind="merge")
+    try:
+        result = await _process_video(
+            request=request,
+            video=video,
+            timestamps=timestamps,
+            interval_seconds=interval_seconds,
+            max_frames=max_frames,
+        )
+    except UserInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse(
+        {
+            "token": result["token"],
+            "download_url": result["download_url"],
+            "expires_at": result["expires_at_iso"],
+            "size": result["size"],
+            "filename": result["filename"],
+            "content_type": result["content_type"],
+            "frame_count": result["frame_count"],
+            "duration_seconds": result["duration_seconds"],
+            "timestamps_seconds": result["timestamps_seconds"],
+        }
+    )
+
+
 @app.get("/api/status/{token}")
 async def status_api(token: str):
     entry = STORE.get_valid(token)
@@ -393,6 +488,7 @@ async def status_api(token: str):
         "expires_at": datetime.fromtimestamp(entry.expires_at, tz=timezone.utc).isoformat(),
         "size": entry.size,
         "filename": entry.filename,
+        "content_type": entry.media_type,
     }
 
 
@@ -416,6 +512,9 @@ def _render_index(
         "policy": "append",
         "strict": False,
         "auto_orient": True,
+        "video_timestamps": "",
+        "video_interval": str(SETTINGS.video_frame_interval_seconds),
+        "video_max_frames": str(SETTINGS.max_video_frames),
         "mode": "interleave",
     }
     if form_values:
@@ -431,6 +530,8 @@ def _render_index(
             "max_file_mb": SETTINGS.max_file_mb,
             "max_upload_files": SETTINGS.max_upload_files,
             "ttl_seconds": SETTINGS.download_ttl_seconds,
+            "max_video_duration_seconds": SETTINGS.max_video_duration_seconds,
+            "max_video_frames": SETTINGS.max_video_frames,
         },
     )
 
@@ -446,6 +547,8 @@ def _render_result(*, request: Request, result: dict[str, object]):
             "expires_at": result["expires_at_human"],
             "size_kb": round(result["size"] / 1024, 2),
             "one_shot": SETTINGS.one_shot_download,
+            "result_kind": result.get("kind", "pdf"),
+            "frame_count": result.get("frame_count"),
         },
     )
 
@@ -708,6 +811,198 @@ async def _process_images(
     }
 
 
+async def _process_video(
+    *,
+    request: Request,
+    video: UploadFile,
+    timestamps: str | None,
+    interval_seconds: str | None,
+    max_frames: str | None,
+) -> dict[str, object]:
+    try:
+        from core.video_screenshots import VideoExtractionError, extract_video_frames_to_zip
+    except ModuleNotFoundError as exc:
+        raise UserInputError("Server is missing the video extraction component.") from exc
+
+    precise_timestamps = _parse_video_timestamps(timestamps)
+    interval = None if precise_timestamps is not None else _parse_video_interval(interval_seconds)
+    frame_limit = _parse_video_frame_limit(max_frames)
+    if precise_timestamps is not None and len(precise_timestamps) > frame_limit:
+        raise UserInputError(
+            f"At most {frame_limit} screenshots can be requested in one batch."
+        )
+    video_path = await _save_video_upload(video, label="Video")
+
+    try:
+        async with MERGE_SEMAPHORE:
+            try:
+                extraction = await asyncio.to_thread(
+                    extract_video_frames_to_zip,
+                    video_path,
+                    interval_seconds=interval if precise_timestamps is None else None,
+                    timestamps_seconds=precise_timestamps,
+                    max_frames=frame_limit,
+                    max_duration_seconds=SETTINGS.max_video_duration_seconds,
+                    max_output_bytes=SETTINGS.max_video_output_bytes,
+                    ffmpeg_binary=SETTINGS.ffmpeg_binary,
+                    ffprobe_binary=SETTINGS.ffprobe_binary,
+                    timeout_seconds=SETTINGS.video_process_timeout_seconds,
+                )
+            except VideoExtractionError as exc:
+                raise UserInputError(str(exc)) from exc
+    finally:
+        with suppress(FileNotFoundError):
+            video_path.unlink()
+
+    filename = _build_video_output_filename(video.filename)
+    try:
+        token, entry = STORE.put_bytes(
+            data=extraction.archive_bytes,
+            filename=filename,
+            ttl_seconds=SETTINGS.download_ttl_seconds,
+            media_type="application/zip",
+        )
+    except StoreFullError as exc:
+        raise UserInputError(str(exc)) from exc
+
+    download_url = str(request.url_for("download_file", token=token))
+    expires_at_dt = datetime.fromtimestamp(entry.expires_at, tz=timezone.utc)
+    return {
+        "token": token,
+        "download_url": download_url,
+        "expires_at_human": expires_at_dt.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "expires_at_iso": expires_at_dt.isoformat(),
+        "size": entry.size,
+        "filename": entry.filename,
+        "content_type": entry.media_type,
+        "kind": "video",
+        "frame_count": extraction.frame_count,
+        "duration_seconds": extraction.duration_seconds,
+        "timestamps_seconds": extraction.timestamps_seconds,
+    }
+
+
+async def _save_video_upload(upload: UploadFile, *, label: str) -> Path:
+    filename = upload.filename or "video"
+    suffix = Path(filename).suffix.lower()
+    supported_suffixes = {
+        ".3gp",
+        ".avi",
+        ".flv",
+        ".m4v",
+        ".mkv",
+        ".mov",
+        ".mp4",
+        ".mpeg",
+        ".mpg",
+        ".mts",
+        ".m2ts",
+        ".ts",
+        ".webm",
+        ".wmv",
+    }
+    if upload.content_type and not upload.content_type.startswith("video/") and suffix not in supported_suffixes:
+        raise UserInputError(f"{label}: invalid MIME type. Only video files are accepted.")
+
+    temporary_path: Path | None = None
+    try:
+        await upload.seek(0)
+        with tempfile.NamedTemporaryFile(
+            prefix="pdf-interleave-video-",
+            suffix=suffix if suffix in supported_suffixes else ".video",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            total_size = 0
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > SETTINGS.max_file_bytes:
+                    raise UserInputError(
+                        f"{label}: file too large. Max size is {SETTINGS.max_file_mb} MB."
+                    )
+                temporary_file.write(chunk)
+    except UserInputError:
+        if temporary_path is not None:
+            with suppress(FileNotFoundError):
+                temporary_path.unlink()
+        raise
+    except OSError as exc:
+        if temporary_path is not None:
+            with suppress(FileNotFoundError):
+                temporary_path.unlink()
+        raise UserInputError(f"{label}: temporary storage is unavailable.") from exc
+
+    if temporary_path is None:
+        raise UserInputError(f"{label}: empty file.")
+    if temporary_path.stat().st_size == 0:
+        with suppress(FileNotFoundError):
+            temporary_path.unlink()
+        raise UserInputError(f"{label}: empty file.")
+    return temporary_path
+
+
+def _parse_video_interval(value: str | None) -> float:
+    raw_value = value.strip() if value is not None else ""
+    if not raw_value:
+        return SETTINGS.video_frame_interval_seconds
+
+    try:
+        interval = float(raw_value.replace(",", "."))
+    except ValueError as exc:
+        raise UserInputError("Screenshot interval must be a valid number of seconds.") from exc
+    if not math.isfinite(interval) or interval <= 0:
+        raise UserInputError("Screenshot interval must be greater than 0 seconds.")
+    return interval
+
+
+def _parse_video_timestamps(value: str | None) -> tuple[float, ...] | None:
+    raw_value = value.strip() if value is not None else ""
+    if not raw_value:
+        return None
+
+    # A semicolon lets French users use a decimal comma too: "3,5; 8,5".
+    if ";" in raw_value:
+        raw_parts = [part for part in re.split(r"[;\s]+", raw_value) if part]
+    else:
+        raw_parts = [part for part in re.split(r"[,\s]+", raw_value) if part]
+    timestamps: list[float] = []
+    for raw_part in raw_parts:
+        try:
+            timestamp = float(raw_part.replace(",", "."))
+        except ValueError as exc:
+            raise UserInputError(
+                "Precise screenshot times must be numbers separated by commas or spaces."
+            ) from exc
+        if not math.isfinite(timestamp) or timestamp < 0:
+            raise UserInputError("Precise screenshot times must be at least 0 seconds.")
+        timestamps.append(timestamp)
+
+    if len(set(timestamps)) != len(timestamps):
+        raise UserInputError("Precise screenshot times must not contain duplicates.")
+    return tuple(timestamps)
+
+
+def _parse_video_frame_limit(value: str | None) -> int:
+    raw_value = value.strip() if value is not None else ""
+    if not raw_value:
+        return SETTINGS.max_video_frames
+
+    try:
+        frame_limit = int(raw_value)
+    except ValueError as exc:
+        raise UserInputError("Maximum screenshots must be a whole number.") from exc
+    if frame_limit < 1:
+        raise UserInputError("Maximum screenshots must be at least 1.")
+    if frame_limit > SETTINGS.max_video_frames:
+        raise UserInputError(
+            f"Maximum screenshots is {SETTINGS.max_video_frames} for this server."
+        )
+    return frame_limit
+
+
 def _parse_concat_order(order: str | None, *, file_count: int) -> list[int]:
     if order is None or not order.strip():
         return list(range(file_count))
@@ -768,6 +1063,11 @@ def _build_images_output_filename(names: list[str | None]) -> str:
     first = _sanitize_filename_component(names[0] or "first-image")
     last = _sanitize_filename_component(names[-1] or "last-image")
     return f"{first}_{last}_{len(names)}-images.pdf"
+
+
+def _build_video_output_filename(name: str | None) -> str:
+    stem = _sanitize_filename_component(name or "video")
+    return f"{stem}-screenshots.zip"
 
 
 def _sanitize_filename_component(filename: str) -> str:
